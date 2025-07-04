@@ -101,7 +101,14 @@ def main(win, window_width): #main loop
                 #ensuring the mouse is within the limits of the grid
                 if row < rows and col < rows:
                     node = grid[row][col] #fetching the node object at the given position
-                    node.make_wall() #setting color to white to make that a wall
+                    if not start and node != end:
+                        start = node 
+                        node.make_start()
+                    elif not end and node != start:
+                        end = node
+                        node.make_end()
+                    elif node != start and node != end:
+                        node.make_wall()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 3: #if right mouse button is pressed, the wall will get removed
                     pos = pygame.mouse.get_pos()
@@ -110,7 +117,14 @@ def main(win, window_width): #main loop
                     #ensuring the mouse is within the limits of the grid
                     if row < rows and col < rows:
                         node = grid[row][col] #fetching the node object at the given position
-                        node.reset()
+                        if node == start:
+                            start = None
+                            node.reset()
+                        elif node == end:
+                            end = None
+                            node.reset()
+                        else:
+                            node.reset()
 
     pygame.quit() #cleaning up the window
 
