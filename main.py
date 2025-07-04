@@ -1,5 +1,6 @@
 import pygame
 import math
+from queue import PriorityQueue #used to sort items by priority
 
 window_width = 600  #setting window size
 window = pygame.display.set_mode((window_width, window_width))
@@ -10,6 +11,8 @@ white = (255, 255, 255)
 black = (0, 0, 0)      
 green = (0, 255, 0)
 red = (255, 0, 0)  
+blue = (0, 0, 255)
+yellow = (255, 255, 0)
 gridlines = (50, 50, 50)
 
 rows = 30  #setting grid size 30x30
@@ -24,6 +27,12 @@ class Node:
         self.color = black
         self.width = width
         self.neighbors = []
+
+    def __eq__(self, other): #to check if two nodes are equal
+        return isinstance(other, Node) and self.row == other.row and self.col == other.col
+
+    def __hash__(self): #to use object as dictionary key
+        return hash((self.row, self.col))
 
     def get_pos(self): #function will return the position of an object
         return self.row, self.col
@@ -51,6 +60,17 @@ class Node:
     
     def is_end(self): #checks if a node is an ending node
         return self.color == red
+    
+    def update_neighbors(self, grid): #checking which nodes are not walls
+        self.neighbors = [] 
+        if self.row < rows - 1 and not grid[self.row + 1][self.col].is_wall():
+            self.neighbors.append(grid[self.row + 1][self.col])
+        if self.row > 0 and not grid[self.row - 1][self.col].is_wall():
+            self.neighbors.append(grid[self.row - 1][self.col])
+        if self.col < rows - 1 and not grid[self.row][self.col + 1].is_wall():
+            self.neighbors.append(grid[self.row][self.col + 1])
+        if self.col > 0 and not grid[self.row][self.col - 1].is_wall():
+            self.neighbors.append(grid[self.row][self.col - 1])
 
 
 def make_grid(rows, width): #function to make the 30x30 grid
@@ -82,6 +102,60 @@ def draw(win, grid, rows, width): #function to draw the entire screen
     draw_grid(win, rows, width) #creating the grid
     pygame.display.update() #window gets updated from scratch everytime 
 
+def h(p1,p2): #calculating the least distance
+    x1, y1 = p1
+    x2, y2 = p2
+    return abs(x1-x2) + abs(y1-y2) #returns the number of nodes to go up/down/left/right and not diagonally
+
+def reconstruct_path(came_from, current, draw): #retracting steps
+    while current in came_from:
+        current = came_from[current] #going one step back and turning the node yellow
+        current.color = yellow
+        draw()
+
+def a_star(draw, grid, start, end):
+    count = 0
+    open_set = PriorityQueue()
+    open_set.put((0, count, start)) #adding tuple to the queue - start is the node that is actually being evaluated
+    came_from = {}
+
+    g_score = {node: float("inf") for row in grid for node in row} #setting all values to infinity
+    g_score[start] = 0
+    f_score = {node: float("inf") for row in grid for node in row}
+    f_score[start] = h(start.get_pos(), end.get_pos()) 
+
+    open_set_hash = {start} #to check if the node is in priority queue because .get() won't work well with PriorityQueue
+
+    while not open_set.empty(): 
+        current = open_set.get()[2] #gets the node with the lowest priority score and 2 is the index of the node in the tuple 
+        open_set_hash.remove(current)
+
+        if current == end: #checking if the node retrieved is the end node
+            reconstruct_path(came_from, end, draw)
+            end.make_end()
+            start.make_start()
+            return True
+        
+        for neighbor in current.neighbors: #going through all non-wall nodes
+            temp_g = g_score[current] + 1
+
+            if temp_g < g_score[neighbor]: #checking the cost from current to neighbor and if that's less, then that's a better path
+                came_from[neighbor] = current
+                g_score[neighbor] = temp_g #updating f and g scores
+                f_score[neighbor] = temp_g + h(neighbor.get_pos(), end.get_pos())
+                if neighbor not in open_set_hash:
+                    count += 1
+                    open_set.put((f_score[neighbor], count, neighbor)) #adding the cost to queue with the node
+                    open_set_hash.add(neighbor)
+                    neighbor.color = blue
+        
+        draw()
+
+        if current != start and current != end:
+            current.color = (100, 100, 100)
+
+    return False
+
 
 def main(win, window_width): #main loop
     grid = make_grid(rows, window_width)
@@ -94,12 +168,18 @@ def main(win, window_width): #main loop
         for event in pygame.event.get(): #checking if the user is trying to close the window
             if event.type == pygame.QUIT:
                 run = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE and start and end:
+                    for row in grid:
+                        for node in row:
+                            node.update_neighbors(grid)
+                    a_star(lambda: draw(win, grid, rows, window_width), grid, start, end)
             if pygame.mouse.get_pressed()[0]: #if left mouse button is pressed, we get the current position of the cursor in pixels
                 pos = pygame.mouse.get_pos()
                 row = pos[0] // cell_size
                 col = pos[1] // cell_size
                 #ensuring the mouse is within the limits of the grid
-                if row < rows and col < rows:
+                if 0 <= row < rows and 0 <= col < rows:
                     node = grid[row][col] #fetching the node object at the given position
                     if not start and node != end:
                         start = node 
@@ -115,7 +195,7 @@ def main(win, window_width): #main loop
                     row = pos[0] // cell_size
                     col = pos[1] // cell_size
                     #ensuring the mouse is within the limits of the grid
-                    if row < rows and col < rows:
+                    if 0 <= row < rows and 0 <= col < rows:
                         node = grid[row][col] #fetching the node object at the given position
                         if node == start:
                             start = None
