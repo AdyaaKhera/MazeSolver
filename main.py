@@ -1,6 +1,7 @@
 import pygame
 import math
 from queue import PriorityQueue #used to sort items by priority
+import time 
 
 window_width = 600  #setting window size
 window = pygame.display.set_mode((window_width, window_width))
@@ -16,6 +17,9 @@ yellow = (255, 255, 0)
 gridlines = (50, 50, 50)
 
 rows = 30  #setting grid size 30x30
+
+pygame.font.init() #setting up a font to display text
+font = pygame.font.SysFont("Times New Roman", 18)
 
 #this class will reprsent each square on the grid
 class Node: 
@@ -92,7 +96,7 @@ def draw_grid(win, rows, width): #function to draw the gridlines
             pygame.draw.line(win, gridlines, (j * gap, 0), (j * gap, width))
 
 
-def draw(win, grid, rows, width): #function to draw the entire screen
+def draw(win, grid, rows, width, steps = 0, time_taken = 0): #function to draw the entire screen
     win.fill(black)
 
     for row in grid:
@@ -100,21 +104,29 @@ def draw(win, grid, rows, width): #function to draw the entire screen
             node.draw(win) #drawing all the nodes
 
     draw_grid(win, rows, width) #creating the grid
+    draw_info(win, steps, time_taken)
     pygame.display.update() #window gets updated from scratch everytime 
+
+def draw_info(win, steps, time_taken):
+    text_surface = font.render(f"Steps: {steps}   Time: {time_taken:.2f}s", True, (255, 255, 255))
+    win.blit(text_surface, (10, 10))  #rendering the text to the top left
+
 
 def h(p1,p2): #calculating the least distance
     x1, y1 = p1
     x2, y2 = p2
     return abs(x1-x2) + abs(y1-y2) #returns the number of nodes to go up/down/left/right and not diagonally
 
-def reconstruct_path(came_from, current, draw): #retracting steps
+def reconstruct_path(came_from, current, draw, steps, start_time): #retracting steps
     while current in came_from:
         current = came_from[current] #going one step back and turning the node yellow
         current.color = yellow
-        draw()
+        steps += 1
+        draw(steps, time.time() - start_time)
 
 def a_star(draw, grid, start, end):
     count = 0
+    steps = 0
     open_set = PriorityQueue()
     open_set.put((0, count, start)) #adding tuple to the queue - start is the node that is actually being evaluated
     came_from = {}
@@ -126,16 +138,18 @@ def a_star(draw, grid, start, end):
 
     open_set_hash = {start} #to check if the node is in priority queue because .get() won't work well with PriorityQueue
 
+    start_time = time.time() #starting timer
+
     while not open_set.empty(): 
         current = open_set.get()[2] #gets the node with the lowest priority score and 2 is the index of the node in the tuple 
         open_set_hash.remove(current)
 
         if current == end: #checking if the node retrieved is the end node
-            reconstruct_path(came_from, end, draw)
+            reconstruct_path(came_from, end, draw, steps, start_time)
             end.make_end()
             start.make_start()
             return True
-        
+    
         for neighbor in current.neighbors: #going through all non-wall nodes
             temp_g = g_score[current] + 1
 
@@ -149,7 +163,7 @@ def a_star(draw, grid, start, end):
                     open_set_hash.add(neighbor)
                     neighbor.color = blue
         
-        draw()
+        draw(steps, time.time() - start_time)
 
         if current != start and current != end:
             current.color = (100, 100, 100)
@@ -163,8 +177,10 @@ def main(win, window_width): #main loop
     end = None
     cell_size = window_width // rows #sizing each square
     run = True
+    last_steps = 0
+    last_time = 0
     while run:
-        draw(win, grid, rows, window_width) #this is where the window gets updated
+        draw(win, grid, rows, window_width, last_steps, last_time) #this is where the window gets updated with the latest time and steps taken
         for event in pygame.event.get(): #checking if the user is trying to close the window
             if event.type == pygame.QUIT:
                 run = False
@@ -173,7 +189,18 @@ def main(win, window_width): #main loop
                     for row in grid:
                         for node in row:
                             node.update_neighbors(grid)
-                    a_star(lambda: draw(win, grid, rows, window_width), grid, start, end)
+                    a_star(lambda steps, time_taken: draw(window, grid, rows, window_width, steps, time_taken), grid, start, end)
+                    def update_draw(steps, time_taken):
+                        nonlocal last_steps, last_time
+                        last_steps = steps
+                        last_time = time_taken
+                        draw(win, grid, rows, window_width, steps, time_taken)
+                    a_star(update_draw, grid, start, end)
+                if event.key == pygame.K_r:  #resetting the grid when R is pressed
+                    start = None
+                    end = None
+                    last_steps = last_time = 0
+                    grid = make_grid(rows, window_width)
             if pygame.mouse.get_pressed()[0]: #if left mouse button is pressed, we get the current position of the cursor in pixels
                 pos = pygame.mouse.get_pos()
                 row = pos[0] // cell_size
