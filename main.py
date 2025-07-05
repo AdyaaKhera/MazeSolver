@@ -1,239 +1,265 @@
-import pygame
-import math
-from queue import PriorityQueue #used to sort items by priority
-import time 
+#importing libraries
+import pygame, random, time 
+from queue import PriorityQueue #to create a priority list according to costs
 
-window_width = 600  #setting window size
-window = pygame.display.set_mode((window_width, window_width))
-pygame.display.set_caption("Maze Solver")
+#setup
+rows = 25
+cell_size = 24
+padding_bottom = 80
+margin = 40
+window_width = cell_size * rows * 2 + margin
+window_height = cell_size * rows + padding_bottom
+fps = 60
 
-#defining colors
-white = (255, 255, 255) 
-black = (0, 0, 0)      
-green = (0, 255, 0)
-red = (255, 0, 0)  
-blue = (0, 0, 255)
-yellow = (255, 255, 0)
-gridlines = (50, 50, 50)
+#colors
+BLACK  = (20, 20, 20)
+WHITE  = (230, 230, 230)
+GRAY   = (70, 70, 70)
+GREEN  = (0, 200, 0)
+RED    = (200, 50, 50)
+BLUE   = (50, 100, 255)
+YELLOW = (255, 255, 0)
 
-rows = 30  #setting grid size 30x30
+#setting up pygame display
+pygame.init()
+screen = pygame.display.set_mode((window_width, window_height))
+pygame.display.set_caption("Maze Solver Simulation")
+font = pygame.font.SysFont("Consolas", 16)
 
-pygame.font.init() #setting up a font to display text
-font = pygame.font.SysFont("Times New Roman", 18)
-
-#this class will reprsent each square on the grid
-class Node: 
-    def __init__(self, row, col, width):
+#creating the node class to depict each square on the grid
+class Node:
+    def __init__(self, row, col):
         self.row = row
         self.col = col
-        self.x = row * width #row * width of one cell would give x coordinate on the grid
-        self.y = col * width #same as obtaining x coordinate
-        self.color = black
-        self.width = width
+        self.color = BLACK
         self.neighbors = []
+        self.is_wall = False
+        self.is_robot = False
 
-    def __eq__(self, other): #to check if two nodes are equal
-        return isinstance(other, Node) and self.row == other.row and self.col == other.col
-
-    def __hash__(self): #to use object as dictionary key
-        return hash((self.row, self.col))
-
-    def get_pos(self): #function will return the position of an object
+    def get_pos(self):
         return self.row, self.col
 
-    def is_wall(self): #walls would be white colored so this function will check if the node is part of the wall
-        return self.color == white
+    def reset(self): #resets a node as non-wall square
+        self.color = BLACK
+        self.is_wall = False
+        self.is_robot = False
 
-    def make_wall(self): #turns a node into a wall by changing its color to white
-        self.color = white
+    def make_start(self): #creating the start node
+        self.color = GREEN
 
-    def draw(self, win): #function to draw the node
-        pygame.draw.rect(win, self.color, (self.x, self.y, self.width, self.width))
+    def make_end(self): #end node
+        self.color = RED
 
-    def reset(self): #resets the node to background
-        self.color = black
-    
-    def make_start(self): #creates a starting node
-        self.color = green
+    def make_wall(self): #making wall by changing the color to white
+        self.color = WHITE
+        self.is_wall = True
 
-    def make_end(self): #creates an ending node
-        self.color = red
+    def make_path(self):  #final path chosen by the algorithm will show up in blue, excluding the starting and ending nodes
+        if self.color not in (GREEN, RED):
+            self.color = BLUE
 
-    def is_start(self): #checks if  a node is a starting node
-        return self.color == green
-    
-    def is_end(self): #checks if a node is an ending node
-        return self.color == red
-    
-    def update_neighbors(self, grid): #checking which nodes are not walls
-        self.neighbors = [] 
-        if self.row < rows - 1 and not grid[self.row + 1][self.col].is_wall():
-            self.neighbors.append(grid[self.row + 1][self.col])
-        if self.row > 0 and not grid[self.row - 1][self.col].is_wall():
-            self.neighbors.append(grid[self.row - 1][self.col])
-        if self.col < rows - 1 and not grid[self.row][self.col + 1].is_wall():
-            self.neighbors.append(grid[self.row][self.col + 1])
-        if self.col > 0 and not grid[self.row][self.col - 1].is_wall():
-            self.neighbors.append(grid[self.row][self.col - 1])
+    def make_visited(self):  #nodes that are explored but not final path excluding the start and end would be colored gray
+        if self.color not in (GREEN, RED):
+            self.color = GRAY
 
+    def make_robot(self):  #declaring the node as robot at that position
+        self.is_robot = True
 
-def make_grid(rows, width): #function to make the 30x30 grid
-    grid = []
-    gap = width // rows  
-    for i in range(rows):
-        grid.append([])
-        for j in range(rows):
-            node = Node(i, j, gap)
-            grid[i].append(node)
-    return grid #grid is the list of lists here
+    def draw(self, win, offset):  
+        pygame.draw.rect(win, self.color, (self.col * cell_size + offset, self.row * cell_size, cell_size, cell_size))
+        if self.is_robot: #drawing the robot as a circle
+            pygame.draw.circle(win, YELLOW, (self.col * cell_size + offset + cell_size // 2, self.row * cell_size + cell_size // 2), cell_size // 3)
 
+    def update_neighbors(self, grid):  #adding 4-directional neighbors to a list if they are not walls
+        self.neighbors = []
+        for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+            r, c = self.row + dr, self.col + dc
+            if 0 <= r < rows and 0 <= c < rows and not grid[r][c].is_wall:
+                self.neighbors.append(grid[r][c])
 
-def draw_grid(win, rows, width): #function to draw the gridlines
-    gap = width // rows
-    for i in range(rows):
-        pygame.draw.line(win, gridlines, (0, i * gap), (width, i * gap))
-        for j in range(rows):
-            pygame.draw.line(win, gridlines, (j * gap, 0), (j * gap, width))
+#creating the grid
+def make_grid():  
+    return [[Node(i, j) for j in range(rows)] for i in range(rows)]
 
-
-def draw(win, grid, rows, width, steps = 0, time_taken = 0): #function to draw the entire screen
-    win.fill(black)
-
+def draw_grid(win, grid, offset): 
     for row in grid:
         for node in row:
-            node.draw(win) #drawing all the nodes
+            node.draw(win, offset) #drawing the cells
+    for i in range(rows): #drawing the gridlines
+        pygame.draw.line(win, GRAY, (offset, i * cell_size), (offset + rows * cell_size, i * cell_size))
+        for j in range(rows):
+            pygame.draw.line(win, GRAY, (offset + j * cell_size, 0), (offset + j * cell_size, rows * cell_size))
 
-    draw_grid(win, rows, width) #creating the grid
-    draw_info(win, steps, time_taken)
-    pygame.display.update() #window gets updated from scratch everytime 
+def draw_controls():  #function key at the bottom
+    labels = ["E: Explore", "P: Plan (A*)", "R: Reset"]
+    for i, text in enumerate(labels):
+        surface = font.render(text, True, WHITE)
+        screen.blit(surface, (10, rows * cell_size + 10 + 24 * i))
 
-def draw_info(win, steps, time_taken):
-    text_surface = font.render(f"Steps: {steps}   Time: {time_taken:.2f}s", True, (255, 255, 255))
-    win.blit(text_surface, (10, 10))  #rendering the text to the top left
+def draw_screen(full_grid, robot_grid):  #drawing two grids with labels and updating it everytime
+    screen.fill(BLACK)
+    draw_grid(screen, full_grid, 0)
+    draw_grid(screen, robot_grid, rows * cell_size + margin)
+    draw_controls()
+    pygame.display.update()
 
-
-def h(p1,p2): #calculating the least distance
+def h(p1, p2):  #function to calculate the manhattan distance
     x1, y1 = p1
     x2, y2 = p2
-    return abs(x1-x2) + abs(y1-y2) #returns the number of nodes to go up/down/left/right and not diagonally
+    return abs(x1 - x2) + abs(y1 - y2)
 
-def reconstruct_path(came_from, current, draw, steps, start_time): #retracting steps
+def reconstruct_path(came_from, current, draw_fn):  #tracing path back from end point by unpacking the list, giving it the value of current node
     while current in came_from:
-        current = came_from[current] #going one step back and turning the node yellow
-        current.color = yellow
-        steps += 1
-        draw(steps, time.time() - start_time)
+        current = came_from[current]
+        current.make_path()
+        draw_fn()
+        time.sleep(0.01)
 
-def a_star(draw, grid, start, end):
+def a_star(draw_fn, grid, start, end):  #implementing A* 
     count = 0
-    steps = 0
     open_set = PriorityQueue()
-    open_set.put((0, count, start)) #adding tuple to the queue - start is the node that is actually being evaluated
+    open_set.put((0, count, start))
     came_from = {}
-
-    g_score = {node: float("inf") for row in grid for node in row} #setting all values to infinity
-    g_score[start] = 0
+    g_score = {node: float("inf") for row in grid for node in row} #setting values to infinity before calculating minimum cost
     f_score = {node: float("inf") for row in grid for node in row}
-    f_score[start] = h(start.get_pos(), end.get_pos()) 
+    g_score[start] = 0
+    f_score[start] = h(start.get_pos(), end.get_pos())
+    open_set_hash = {start} #same as open_set, just easy to iterate through
 
-    open_set_hash = {start} #to check if the node is in priority queue because .get() won't work well with PriorityQueue
-
-    start_time = time.time() #starting timer
-
-    while not open_set.empty(): 
-        current = open_set.get()[2] #gets the node with the lowest priority score and 2 is the index of the node in the tuple 
+    while not open_set.empty():
+        current = open_set.get()[2]
         open_set_hash.remove(current)
 
-        if current == end: #checking if the node retrieved is the end node
-            reconstruct_path(came_from, end, draw, steps, start_time)
+        if current == end:  #if end node reached, retracing the path
+            reconstruct_path(came_from, end, draw_fn)
             end.make_end()
             start.make_start()
             return True
-    
-        for neighbor in current.neighbors: #going through all non-wall nodes
-            temp_g = g_score[current] + 1
 
-            if temp_g < g_score[neighbor]: #checking the cost from current to neighbor and if that's less, then that's a better path
+        for neighbor in current.neighbors: #checking costs when neighbors are used
+            temp_g = g_score[current] + 1
+            if temp_g < g_score[neighbor]:  #better path scenario-the one with the lower cost
                 came_from[neighbor] = current
-                g_score[neighbor] = temp_g #updating f and g scores
+                g_score[neighbor] = temp_g
                 f_score[neighbor] = temp_g + h(neighbor.get_pos(), end.get_pos())
                 if neighbor not in open_set_hash:
                     count += 1
-                    open_set.put((f_score[neighbor], count, neighbor)) #adding the cost to queue with the node
+                    open_set.put((f_score[neighbor], count, neighbor)) #adding it to priority queue
                     open_set_hash.add(neighbor)
-                    neighbor.color = blue
-        
-        draw(steps, time.time() - start_time)
+                    neighbor.make_visited() #marking neighbor as visited
+        draw_fn()
+    return False  
 
-        if current != start and current != end:
-            current.color = (100, 100, 100)
+def explore_robot(full_grid, robot_grid, start, end):  #robot exploration- robot enters blind with no idea of the generated maze
+    from queue import Queue
+    q = Queue()
+    q.put(start)
+    visited = {start}
+    came_from = {}
 
-    return False
+    while not q.empty():
+        current = q.get()
 
+        #clearing any previous robot nodes
+        for row in robot_grid:
+            for node in row:
+                node.is_robot = False
 
-def main(win, window_width): #main loop
-    grid = make_grid(rows, window_width)
-    start = None
-    end = None
-    cell_size = window_width // rows #sizing each square
+        current.make_robot()
+
+        if current == end:
+            return came_from  #exploration complete
+
+        for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+            r, c = current.row + dr, current.col + dc
+            if 0 <= r < rows and 0 <= c < rows:
+                neighbor = full_grid[r][c]
+                if not neighbor.is_wall and robot_grid[r][c] not in visited:
+                    visited.add(robot_grid[r][c])
+                    q.put(robot_grid[r][c])
+                    came_from[robot_grid[r][c]] = current
+                elif neighbor.is_wall:
+                    robot_grid[r][c].make_wall()  #mapping all the walls onto the robot grid
+        draw_screen(full_grid, robot_grid)
+        time.sleep(0.01)
+    return came_from  
+
+def generate_maze(grid):
+    visited = [[False for _ in range(rows)] for _ in range(rows)]
+
+    def is_valid(r, c):
+        return 0 <= r < rows and 0 <= c < rows and not visited[r][c]
+
+    def carve_path(r, c):
+        visited[r][c] = True
+        grid[r][c].reset() 
+
+        #shuffling directions to randomize maze shape
+        directions = [(0, 2), (0, -2), (2, 0), (-2, 0)]
+        random.shuffle(directions)
+
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            if is_valid(nr, nc):
+                wall_r, wall_c = r + dr // 2, c + dc // 2
+                grid[wall_r][wall_c].reset()  
+                carve_path(nr, nc)
+
+    #initializing all nodes as walls first
+    for i in range(rows):
+        for j in range(rows):
+            grid[i][j].make_wall()
+
+    #starting from a random odd cell
+    start_r = random.randrange(1, rows, 2)
+    start_c = random.randrange(1, rows, 2)
+    carve_path(start_r, start_c)
+
+    #picking two random odd positions in the maze as start and end and then turning them into their respective nodes
+    while True:
+        sr, sc = random.randrange(1, rows, 2), random.randrange(1, rows, 2)
+        er, ec = random.randrange(1, rows, 2), random.randrange(1, rows, 2)
+        if (sr, sc) != (er, ec):
+            break
+
+    grid[sr][sc].make_start()
+    grid[er][ec].make_end()
+
+    return grid[sr][sc], grid[er][ec] 
+
+def main():
+    full_grid = make_grid()
+    robot_grid = make_grid()
+
+    start, end = generate_maze(full_grid)
+
+    robot_grid[start.row][start.col].make_start() #copying the start and end nodes to the robot grid
+    robot_grid[end.row][end.col].make_end()
+
+    came_from_explore = {}
     run = True
-    last_steps = 0
-    last_time = 0
     while run:
-        draw(win, grid, rows, window_width, last_steps, last_time) #this is where the window gets updated with the latest time and steps taken
-        for event in pygame.event.get(): #checking if the user is trying to close the window
+        draw_screen(full_grid, robot_grid) #drawing both screens
+        for event in pygame.event.get():
+
             if event.type == pygame.QUIT:
                 run = False
+
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE and start and end:
-                    for row in grid:
+                if event.key == pygame.K_e:  #exploring the maze when E is pressed
+                    came_from_explore = explore_robot(full_grid, robot_grid, start, end)
+                    for row in robot_grid:
                         for node in row:
-                            node.update_neighbors(grid)
-                    a_star(lambda steps, time_taken: draw(window, grid, rows, window_width, steps, time_taken), grid, start, end)
-                    def update_draw(steps, time_taken):
-                        nonlocal last_steps, last_time
-                        last_steps = steps
-                        last_time = time_taken
-                        draw(win, grid, rows, window_width, steps, time_taken)
-                    a_star(update_draw, grid, start, end)
-                if event.key == pygame.K_r:  #resetting the grid when R is pressed
-                    start = None
-                    end = None
-                    last_steps = last_time = 0
-                    grid = make_grid(rows, window_width)
-            if pygame.mouse.get_pressed()[0]: #if left mouse button is pressed, we get the current position of the cursor in pixels
-                pos = pygame.mouse.get_pos()
-                row = pos[0] // cell_size
-                col = pos[1] // cell_size
-                #ensuring the mouse is within the limits of the grid
-                if 0 <= row < rows and 0 <= col < rows:
-                    node = grid[row][col] #fetching the node object at the given position
-                    if not start and node != end:
-                        start = node 
-                        node.make_start()
-                    elif not end and node != start:
-                        end = node
-                        node.make_end()
-                    elif node != start and node != end:
-                        node.make_wall()
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 3: #if right mouse button is pressed, the wall will get removed
-                    pos = pygame.mouse.get_pos()
-                    row = pos[0] // cell_size
-                    col = pos[1] // cell_size
-                    #ensuring the mouse is within the limits of the grid
-                    if 0 <= row < rows and 0 <= col < rows:
-                        node = grid[row][col] #fetching the node object at the given position
-                        if node == start:
-                            start = None
-                            node.reset()
-                        elif node == end:
-                            end = None
-                            node.reset()
-                        else:
-                            node.reset()
+                            node.update_neighbors(robot_grid)
 
-    pygame.quit() #cleaning up the window
+                if event.key == pygame.K_p and came_from_explore:  #mapping out the shortest path when P is pressed
+                    for row in robot_grid:
+                        for node in row:
+                            node.update_neighbors(robot_grid)
+                    a_star(lambda: draw_screen(full_grid, robot_grid), robot_grid, robot_grid[start.row][start.col], robot_grid[end.row][end.col])
 
+                if event.key == pygame.K_r:  #resetting the maze when R is pressed
+                    main()
+    pygame.quit()
 
-main(window, window_width)
+main()
