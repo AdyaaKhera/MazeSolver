@@ -1,4 +1,4 @@
-# 🧠 Maze Solver Robot Simulation 🔍🤖
+# Maze Solver Robot Simulation
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![Pygame](https://img.shields.io/badge/Pygame-2.0+-green?logo=pygame)
